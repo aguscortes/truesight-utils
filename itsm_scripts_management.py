@@ -1,45 +1,57 @@
 from selenium import webdriver
 from selenium.webdriver.support.select import Select
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support import expected_conditions as EC
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
 import json
 import requests
 import time
 import os
 import zipfile
+import sys, argparse
 
 class itsm_scripts_management():
+
     # Credentials
     __token = ''
     __username = ''
     __password = ''
 
+    __html_path = ''
+    __htmlFile = 'truesight_status.html'
+    __numInactive = 0
+    __numActive = 0
+
     __null = None
     __download_path = ''
-    __xpaths =  [('Truesight', 'https://truesightps.prod.oami.eu:8043/#/', 
+    __locations =  [('Truesight', 'https://truesightps.prod.oami.eu:8043/#/', 
             '//input[@placeholder="User Name"]', '//input[@placeholder="Password"]', '//button[@type="submit"]',  # login tags
             '//a[@id="header-menu-toggle"]', '//*[@id="configuration"]', '//a[@id="configuration-scripts"]',   # Shyntetic Script section path
             '//*[@id="pager"]/li[1]/div/select', #Show all scripts
             '//*[@id="user-preferences-header-action-menu"]', '//*[@id="logout-header-opition"]', # Logoff
             )]
+    __apps = []
 
     # Parameters related to brownser
-    __visible = False
+    __visible = None
     __download_path = ''
 
     # Constructor and destructor
-    def __init__(self, username, password, xpaths, download_path, visible):
-        try:
+    def __init__(self, username, password, download_path, visible=True):
+        try:        
+            item = 0
+            requests.packages.urllib3.disable_warnings(InsecureRequestWarning)   # Making unverified HTTPS requests is strongly discouraged.  
             self.__username = username
             self.__password  = password             
             self.__token = self.__get_token()             
-            #Requests.packages.urllib3.disable_warnings(InsecureRequestWarning)   #Making unverified HTTPS requests is strongly discouraged.  
-            self.__xpaths = xpaths
             self.__visible = visible
             self.__download_path = download_path
-
+            self.__html_path = os.path.join(download_path, 'health')
+            if not os.path.exists(os.path.join(self.__download_path)):
+                os.makedirs(os.path.join(self.__download_path))
         except:
             return None     
 
@@ -51,7 +63,7 @@ class itsm_scripts_management():
         return req['response']['authToken']
 
 
-    def __get_app(self): 
+    def __get_apps(self): 
         url = 'https://truesightps.prod.oami.eu:8043/tsws/10.0/api/appvis/synthetic/api/applications/getAll?isSynthetic=TRUE'
         req = requests.get(url, headers={"Authorization":"authtoken " + self.__token},verify = False)       
         return req.json()
@@ -69,6 +81,79 @@ class itsm_scripts_management():
         return req.json()
 
 
+    def get_report(self):                 
+        if not os.path.exists(self.__html_path):
+            os.makedirs(self.__html_path)
+            print("Created " + self.__html_path+ " folder")
+
+        with open(os.path.join(self.__html_path, self.__htmlFile), 'w') as f:
+            f.write('''
+                <style type="text/css">
+                .tg  {border-collapse:collapse;border-spacing:0;margin:10px auto;width:800px}
+                .tg td{font-family:Arial, sans-serif;font-size:14px;padding:4px 20px;border-style:solid;border-width:1px;overflow:hidden;word-break:normal;border-color:black;}
+                .tg th{font-family:Arial, sans-serif;font-size:14px;font-weight:normal;padding:4px 20px;border-style:solid;border-width:1px;overflow:hidden;word-break:normal;border-color:black;}
+                .tg .tg-1r1g{background-color:#fe0000;border-color:inherit;vertical-align:top}
+                .tg .tg-us36{border-color:inherit;vertical-align:top}
+                .tg .tg-ww61{background-color:#34ff34;border-color:inherit;vertical-align:top}
+                .tg .tg-iwoe{background-color:#68cbd0;border-color:inherit;vertical-align:top}
+                </style>
+                <table class="tg">
+                <tr><th class="tg-iwoe" colspan="7"><b>Truesight App Status<b></th></tr>
+                <tr><td class="tg-iwoe" width="10%">Application</td>
+                    <td class="tg-iwoe" width="20%">executionPlanName</td>
+                    <td class="tg-iwoe" width="10%">Script</td>
+                    <td class="tg-iwoe" width="20%">url</td>
+                    <td class="tg-iwoe" width="10%">location</td>
+                    <td class="tg-iwoe" width="10%">blackouts</td>
+                    <td class="tg-iwoe" width="10%">Active</td></tr>
+                ''')
+
+            applications = self.__get_apps()                  
+            for a in applications['data']: # Loop over current Aps
+                eps = self.__get_ep_by_app(a['appId'])                     
+                for ep in eps['data']: # Loop over EP in App selected
+                    url = ''
+                    if ep['scriptFileName'] == 'URLChecker.ltz':
+                        for at in range(len(ep['attributes'])):
+                            if ep['attributes'][at]['value'].find('http') != -1:
+                                url =  ep['attributes'][at]['value']
+                                break
+                    else: 
+                        url = ''
+
+                    locations = ''    
+                    for at in range(len(ep['agentGroups'])):
+                            locations +=  ep['agentGroups'][at]['name'] + ', '
+
+                    blackouts = ''    
+                    for at in range(len(ep['blackOuts'])):
+                        if ep['blackOuts'][at]['blackoutName'] is not None:
+                            blackouts +=  ep['blackOuts'][at]['blackoutName'] + ', '
+
+                    if int(str(ep['activeStatus'])) == 1:
+                        f.write('<tr><td class="tg-us36">' + a['displayName'] + 
+                         '</td><td class="tg-us36">' + ep['executionPlanName'] +
+                         '</td><td class="tg-us36">' + ep['scriptFileName'] +
+                         '</td><td class="tg-us36">' + url + 
+                         '</td><td class="tg-us36">' + locations[:-2] + 
+                         '</td><td class="tg-us36">' + blackouts[:-2] + 
+                         '</td><td class="tg-ww61">Active</td></tr>')
+                        self.__numActive += 1
+
+                    else:
+                      f.write('<tr><td class="tg-us36">' + a['displayName'] + 
+                         '</td><td class="tg-us36">' + ep['executionPlanName'] + 
+                         '</td><td class="tg-us36">' + ep['scriptFileName'] + 
+                         '</td><td class="tg-us36">' + url + 
+                         '</td><td class="tg-us36">' + locations[:-2] + 
+                         '</td><td class="tg-us36">' + blackouts[:-2] +
+                         '</td><td class="tg-1r1g">Inactive</td></tr>')
+                      self.__numInactive += 1
+            f.write('</table>')
+            f.write('<center><p>Active: '  + str(self.__numActive) + '</p><p> Inactive: ' +  str(self.__numInactive) +'</p></center>')             
+            f.write( time.strftime('<center><p>%d-%m-%Y %H:%M</p></center>')) 
+
+
     def __extract_script(self, path, codepath):    
         for filename in os.listdir(path):
             try:
@@ -83,7 +168,36 @@ class itsm_scripts_management():
                 pass
 
 
-    def scroll_to_and_click(self, driver, elem):
+    def __enable_download_in_headless_chrome(self, driver, download_dir):
+        # add missing support for chrome "send_command"  to selenium webdriver
+        driver.command_executor._commands["send_command"] = ("POST", '/session/$sessionId/chromium/send_command')
+
+        params = {'cmd': 'Page.setDownloadBehavior', 'params': {'behavior': 'allow', 'downloadPath': download_dir}}
+        command_result = driver.execute("send_command", params)
+
+
+    def __open_browser(self):
+        driver_location = os.path.join('D:','lib','chromedriver.exe')   
+        os.environ["webdriver.chrome.driver"] = driver_location
+        chrome_options = Options()
+        if not self.__visible:
+            chrome_options.add_argument("--headless")    
+            chrome_options.add_experimental_option("prefs", {
+              "download.default_directory":  self.__download_path,
+              "download.prompt_for_download": False,
+            })
+            driver = webdriver.Chrome(driver_location, chrome_options=chrome_options)
+            driver.command_executor._commands["send_command"] = ("POST", '/session/$sessionId/chromium/send_command')
+            params = {'cmd': 'Page.setDownloadBehavior', 'params': {'behavior': 'allow', 'downloadPath': self.__download_path}}
+            command_result = driver.execute("send_command", params)
+        else:
+            prefs = {'download.default_directory' : self.__download_path}
+            chrome_options.add_experimental_option('prefs', prefs)
+            driver = webdriver.Chrome(driver_location, chrome_options=chrome_options)
+        return driver
+
+
+    def __scroll_to_and_click(self, driver, elem):
         try:
             elem.click()
         except:
@@ -100,19 +214,56 @@ class itsm_scripts_management():
                 except:
                     pass
 
-    def bulk_download(self):     
-        driver_location = os.path.join('D:','lib','chromedriver.exe')
-        os.environ["webdriver.chrome.driver"] = driver_location
-        if self.__visible:
-            driver = webdriver.Chrome(driver_location)
-        else:
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")            
-            chrome_options.add_argument("download.default_directory=" + self.__download_path)                        
-            driver = webdriver.Chrome(driver_location, chrome_options=chrome_options)
+    def __bulk_download(self):     
+        driver = self.__open_browser()
+
+        for app in self.__locations:                        
+            print ("Checking " + app[0] + "...")        
+            driver.implicitly_wait(10)        
+            driver.get(app[1])
+
+            # Perform the login
+            driver.find_element_by_xpath(app[2]).send_keys(self.__username)
+            driver.find_element_by_xpath(app[3]).send_keys(self.__password)
+            driver.find_element_by_xpath(app[4]).click()    
+
+            # Get to the Scripts Section
+            WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, app[5]))).click()
+            WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, app[6]))).click()
+            WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, app[7]))).click()
+
+            # Show all Scripts            
+            showElements = driver.find_element_by_xpath(app[8]) 
+            #self.scroll_to_and_click(driver,showElements)
+            sel = Select(showElements)
+            sel.select_by_value("771")
+            #sel.select_by_index(2)
+            
+            # Select table 
+            count_all_trs = len(driver.find_elements_by_xpath('//table//tr[@class="ng-scope"]'))
+            for tr in range(count_all_trs-1):                        
+                elem = driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[1]/span')
+                self.__scroll_to_and_click(driver, elem)
+                try:            
+                    driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[2]/span/a').click()
+                    driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[2]//ul[@class="bmc-actioncolumn"]/li[3]/a').click()
+                    driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[1]/span').click()
+                    print("downloading " + str(driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[3]').text) + " to " + self.__download_path)
+                except:
+                    pass
+            # Logoff
+            WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, app[9]))).click()            
+            WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, app[10]))).click()
+            print("End of searching")
+        driver.quit()
 
 
-        for app in self.__xpaths:                        
+
+    def __download_by_scripts(self, scripts_name):     
+        apps_loc = {}     
+        driver = self.__open_browser()
+
+        for app in self.__locations:                        
             print ("Checking " + app[0] + "...")        
             driver.implicitly_wait(10)        
             driver.get(app[1])
@@ -129,35 +280,85 @@ class itsm_scripts_management():
 
             # Show all Scripts            
             showElements = driver.find_element_by_xpath(app[8]) 
-            #self.scroll_to_and_click(driver,showElements)
+            self.__scroll_to_and_click(driver,showElements)
             sel = Select(showElements)
             sel.select_by_value("771")
             #sel.select_by_index(2)
-
             # Select table 
             count_all_trs = len(driver.find_elements_by_xpath('//table//tr[@class="ng-scope"]'))
             for tr in range(count_all_trs-1):                        
                 elem = driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[1]/span')
-                self.scroll_to_and_click(driver, elem)
-                try:            
-                    driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[2]/span/a').click()
-                    driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[2]//ul[@class="bmc-actioncolumn"]/li[3]/a').click()
-                    driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[1]/span').click()
-                    print("download script num " + str(tr))
-                except:
-                    pass
-
-                if tr >= 100:
-                    break
+                self.__scroll_to_and_click(driver, elem)
+                script_name =  driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[3]').text
+                if script_name in scripts_name:
+                    try:            
+                        driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[2]/span/a').click()
+                        driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[2]//ul[@class="bmc-actioncolumn"]/li[3]/a').click()
+                        print("downloading " + script_name + " to " + self.__download_path)
+                    except:
+                        pass
+                else:
+                    print("Searching" + "." * tr )
+                self.__scroll_to_and_click(driver, elem)                        
 
             # Logoff
             WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, app[9]))).click()            
             WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, app[10]))).click()
-
         driver.quit()
 
-    def distribute_ltz(self): 
-        applications = self.__get_app()
+
+    # def __download_by_scripts_plus(self, scripts_name):     
+    #     driver_location = os.path.join('D:','lib','chromedriver.exe')   
+    #     apps_loc = {}     
+    #     os.environ["webdriver.chrome.driver"] = driver_location
+    #     chrome_options = Options()
+    #     #driver = webdriver.Chrome(driver_location)
+    #     if not self.__visible:
+    #         chrome_options.add_argument("--headless") 
+    #     chrome_options.add_argument('--disable-gpu')
+    #     chrome_options.add_argument('--headless')                             
+    #     chrome_options.add_argument("download.default_directory=" + self.__download_path)
+    #     driver = webdriver.Chrome(driver_location, chrome_options=chrome_options)
+
+    #     for app in self.__locations:                        
+    #         print ("Checking " + app[0] + "...")        
+    #         driver.implicitly_wait(5)        
+    #         driver.get(app[1])
+
+    #         # # Perform the login
+    #         driver.find_element_by_xpath(app[2]).send_keys(self.__username)
+    #         driver.find_element_by_xpath(app[3]).send_keys(self.__password)
+    #         driver.find_element_by_xpath(app[4]).click()    
+
+    #         # Get to the Scripts Section
+    #         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, app[5]))).click()
+    #         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, app[6]))).click()
+    #         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, app[7]))).click()
+
+    #         # Show all Scripts            
+    #         showElements = driver.find_element_by_xpath(app[8]) 
+    #         self.__scroll_to_and_click(driver,showElements)
+    #         sel = Select(showElements)
+    #         sel.select_by_value("771")
+    #         #sel.select_by_index(2)
+
+    #         # Select table 
+    #         count_all_trs = len(driver.find_elements_by_xpath('//table//tr[@class="ng-scope"]'))
+    #         elem = driver.find_element_by_xpath('//table//tr[@class="ng-scope"][1]/td[1]/span')
+    #         self.__scroll_to_and_click(driver, elem)                    
+    #         for tr in range(count_all_trs-1):            
+    #             apps_loc.update({ driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[3]').text : tr })
+    #             print (tr)
+
+    #         # Logoff
+    #         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, app[9]))).click()        
+    #         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, app[10]))).click()
+    #         print(str(apps_loc))
+    #     driver.quit()
+
+
+    def __distribute_ltz(self, extract, apps=None): 
+        applications = self.__get_apps()
         for i in applications['data']:
             if not os.path.exists(os.path.join(self.__download_path, "Active", i['displayName'])):
                 os.makedirs(os.path.join(self.__download_path, "Active", i['displayName']))
@@ -170,13 +371,47 @@ class itsm_scripts_management():
                         os.rename(os.path.join(self.__download_path, ep['scriptFileName']), os.path.join(self.__download_path , "Active", i['displayName'], ep['scriptFileName']))
                     except:
                         pass        
-                self.__extract_script(os.path.join(self.__download_path , "Active", i['displayName']), os.path.join(self.__download_path , "Active", i['displayName']))    
+                if extract:        
+                    self.__extract_script(os.path.join(self.__download_path , "Active", i['displayName']), os.path.join(self.__download_path , "Active", i['displayName']))
 
 
+    def get_scripts(self, makeTree=False, extract=False): 
+        self.__bulk_download()
+        if makeTree:
+            self.__distribute_ltz(extract)
 
 
+    def get_scripts_by_app(self, appsname, makeTree=False, extract=False):
+            scripts_needed = []
+            self.__apps = self.__get_apps()
 
-download_path = os.path.join("D:", "Prueba2") #"Truesight Scripts")
-bk = itsm_scripts_management('','', download_path, True)
-bk.bulk_download()
-bk.distribute_ltz()
+            for i in appsname:
+                for item in range(len(self.__apps['data'])):
+                    if self.__apps['data'][item]['displayName'] == i:
+                        execution_plan = self.__get_ep_by_app(self.__apps['data'][item]['appId'])
+                        for item in range(len(execution_plan['data'])):
+                            if execution_plan['data'][item]['activeStatus'] == "1" and execution_plan['data'][item]['scriptFileName'] != "URLChecker.ltz":                              
+                                scripts_needed.append (execution_plan['data'][item]['scriptFileName'])
+            print ("We are going to download: " + str(scripts_needed))            
+            self.__download_by_scripts(scripts_needed)
+            if makeTree:
+                self.__distribute_ltz(extract)
+
+
+try:
+    CLI=argparse.ArgumentParser()
+    CLI.add_argument("username", help="username", type=str)
+    CLI.add_argument("password", help="password", type=str)     
+    CLI.add_argument("download_path", help="download_path", type=str)     
+    CLI.add_argument("visible", help="visible", type=str)     
+    args = CLI.parse_args()
+    print (sys.argv[1])    
+
+    download_path = os.path.join("D:\\PruebasScripts")
+    bk = itsm_scripts_management(args.username, args.password, download_path, True)
+    bk.get_scripts(True, True)
+    #bk.get_scripts_by_app( ["ACRIS","IPTOOL"],False, False)
+    #bk.get_report()    
+except:
+    e = sys.exc_info()[0]
+    print (e)
