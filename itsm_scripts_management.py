@@ -182,10 +182,7 @@ class itsm_scripts_management():
         chrome_options = Options()
         if not self.__visible:
             chrome_options.add_argument("--headless")    
-            chrome_options.add_experimental_option("prefs", {
-              "download.default_directory":  self.__download_path,
-              "download.prompt_for_download": False,
-            })
+            prefs = {"download.default_directory" : self.__download_path, "download.prompt_for_download": "False"}
             driver = webdriver.Chrome(driver_location, chrome_options=chrome_options)
             driver.command_executor._commands["send_command"] = ("POST", '/session/$sessionId/chromium/send_command')
             params = {'cmd': 'Page.setDownloadBehavior', 'params': {'behavior': 'allow', 'downloadPath': self.__download_path}}
@@ -213,6 +210,7 @@ class itsm_scripts_management():
                     break
                 except:
                     pass
+
 
     def __bulk_download(self):     
         driver = self.__open_browser()
@@ -306,57 +304,6 @@ class itsm_scripts_management():
             WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, app[10]))).click()
         driver.quit()
 
-
-    # def __download_by_scripts_plus(self, scripts_name):     
-    #     driver_location = os.path.join('D:','lib','chromedriver.exe')   
-    #     apps_loc = {}     
-    #     os.environ["webdriver.chrome.driver"] = driver_location
-    #     chrome_options = Options()
-    #     #driver = webdriver.Chrome(driver_location)
-    #     if not self.__visible:
-    #         chrome_options.add_argument("--headless") 
-    #     chrome_options.add_argument('--disable-gpu')
-    #     chrome_options.add_argument('--headless')                             
-    #     chrome_options.add_argument("download.default_directory=" + self.__download_path)
-    #     driver = webdriver.Chrome(driver_location, chrome_options=chrome_options)
-
-    #     for app in self.__locations:                        
-    #         print ("Checking " + app[0] + "...")        
-    #         driver.implicitly_wait(5)        
-    #         driver.get(app[1])
-
-    #         # # Perform the login
-    #         driver.find_element_by_xpath(app[2]).send_keys(self.__username)
-    #         driver.find_element_by_xpath(app[3]).send_keys(self.__password)
-    #         driver.find_element_by_xpath(app[4]).click()    
-
-    #         # Get to the Scripts Section
-    #         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, app[5]))).click()
-    #         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, app[6]))).click()
-    #         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, app[7]))).click()
-
-    #         # Show all Scripts            
-    #         showElements = driver.find_element_by_xpath(app[8]) 
-    #         self.__scroll_to_and_click(driver,showElements)
-    #         sel = Select(showElements)
-    #         sel.select_by_value("771")
-    #         #sel.select_by_index(2)
-
-    #         # Select table 
-    #         count_all_trs = len(driver.find_elements_by_xpath('//table//tr[@class="ng-scope"]'))
-    #         elem = driver.find_element_by_xpath('//table//tr[@class="ng-scope"][1]/td[1]/span')
-    #         self.__scroll_to_and_click(driver, elem)                    
-    #         for tr in range(count_all_trs-1):            
-    #             apps_loc.update({ driver.find_element_by_xpath('//table//tr[@class="ng-scope"][' + str(tr+1) + ']/td[3]').text : tr })
-    #             print (tr)
-
-    #         # Logoff
-    #         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, app[9]))).click()        
-    #         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, app[10]))).click()
-    #         print(str(apps_loc))
-    #     driver.quit()
-
-
     def __distribute_ltz(self, extract, apps=None): 
         applications = self.__get_apps()
         for i in applications['data']:
@@ -398,19 +345,23 @@ class itsm_scripts_management():
                 self.__distribute_ltz(extract)
 
 
-try:
+try:    
     CLI=argparse.ArgumentParser()
-    CLI.add_argument("username", help="username", type=str)
-    CLI.add_argument("password", help="password", type=str)     
-    CLI.add_argument("download_path", help="download_path", type=str)     
-    CLI.add_argument("visible", help="visible", type=str)     
+    CLI.add_argument("username", help="AD login", type=str)
+    CLI.add_argument("password", help="AD Password", type=str)     
+    #CLI.add_argument("download_path", help="download_path", type=str)     
+    CLI.add_argument("--apps",  nargs="*",  type=str,    default=[]   ) 
+    CLI.add_argument('--visible', action='store_true')
+    CLI.add_argument('--organize', action='store_true')
+    CLI.add_argument('--extract', action='store_true')
     args = CLI.parse_args()
-    print (sys.argv[1])    
-
-    download_path = os.path.join("D:\\PruebasScripts")
-    bk = itsm_scripts_management(args.username, args.password, download_path, True)
-    bk.get_scripts(True, True)
-    #bk.get_scripts_by_app( ["ACRIS","IPTOOL"],False, False)
+    
+    download_path = os.path.join("D:\\Truesight Scripts") 
+    bk = itsm_scripts_management(str(args.username), str(args.password), download_path, args.visible)
+    if len(args.apps) == 0:
+        bk.get_scripts(args.organize, args.extract)
+    else:
+        bk.get_scripts_by_app( args.apps, False, False)
     #bk.get_report()    
 except:
     e = sys.exc_info()[0]
