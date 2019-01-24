@@ -14,7 +14,6 @@ import zipfile
 import sys, argparse
 
 class itsm_scripts_management():
-
     # Credentials
     __token = ''
     __username = ''
@@ -24,6 +23,7 @@ class itsm_scripts_management():
     __htmlFile = 'truesight_status.html'
     __numInactive = 0
     __numActive = 0
+    __host = 'truesightps.prod.oami.eu'
 
     __null = None
     __download_path = ''
@@ -56,7 +56,7 @@ class itsm_scripts_management():
             return None     
 
     def __get_token(self): 
-        url = 'https://truesightps.prod.oami.eu:8043/tsws/10.0/api/authenticate/login'
+        url = 'https://' + self.__host + ':8043/tsws/10.0/api/authenticate/login'
         body = {"username" : self.__username, "password" : self.__password, "tenantName" : "BmcRealm"}
         headers = {"Content-Type": "application/json"}
         req = requests.post(url, data=body, verify = False).json()
@@ -64,19 +64,19 @@ class itsm_scripts_management():
 
 
     def __get_apps(self): 
-        url = 'https://truesightps.prod.oami.eu:8043/tsws/10.0/api/appvis/synthetic/api/applications/getAll?isSynthetic=TRUE'
+        url = 'https://' + self.__host + ':8043/tsws/10.0/api/appvis/synthetic/api/applications/getAll?isSynthetic=TRUE'
         req = requests.get(url, headers={"Authorization":"authtoken " + self.__token},verify = False)       
         return req.json()
 
 
     def __get_ep(self): 
-        url = 'https://truesightps.prod.oami.eu:8043/tsws/10.0/api/appvis/synthetic/api/execution_plans/getAll' 
+        url = 'https://' + self.__host + ':8043/tsws/10.0/api/appvis/synthetic/api/execution_plans/getAll' 
         req = requests.get(url, headers={"Authorization":"authtoken " + self.__token},verify = False)
         return req.json()
     
 
     def __get_ep_by_app(self, app_id): 
-        url = 'https://truesightps.prod.oami.eu:8043/tsws/10.0/api/appvis/synthetic/api/executionplans/getAllByApplication?applicationId=' + str(app_id)
+        url = 'https://' + self.__host + ':8043/tsws/10.0/api/appvis/synthetic/api/executionplans/getAllByApplication?applicationId=' + str(app_id)
         req = requests.get(url, headers={"Authorization":"authtoken " + self.__token},verify = False)
         return req.json()
 
@@ -112,43 +112,44 @@ class itsm_scripts_management():
             for a in applications['data']: # Loop over current Aps
                 eps = self.__get_ep_by_app(a['appId'])                     
                 for ep in eps['data']: # Loop over EP in App selected
-                    url = ''
-                    if ep['scriptFileName'] == 'URLChecker.ltz':
-                        for at in range(len(ep['attributes'])):
-                            if ep['attributes'][at]['value'].find('http') != -1:
-                                url =  ep['attributes'][at]['value']
-                                break
-                    else: 
-                        url = ''
-
-                    locations = ''    
-                    for at in range(len(ep['agentGroups'])):
-                            locations +=  ep['agentGroups'][at]['name'] + ', '
-
-                    blackouts = ''    
-                    for at in range(len(ep['blackOuts'])):
-                        if ep['blackOuts'][at]['blackoutName'] is not None:
-                            blackouts +=  ep['blackOuts'][at]['blackoutName'] + ', '
-
                     if int(str(ep['activeStatus'])) == 1:
-                        f.write('<tr><td class="tg-us36">' + a['displayName'] + 
-                         '</td><td class="tg-us36">' + ep['executionPlanName'] +
-                         '</td><td class="tg-us36">' + ep['scriptFileName'] +
-                         '</td><td class="tg-us36">' + url + 
-                         '</td><td class="tg-us36">' + locations[:-2] + 
-                         '</td><td class="tg-us36">' + blackouts[:-2] + 
-                         '</td><td class="tg-ww61">Active</td></tr>')
-                        self.__numActive += 1
+                        url = ''
+                        if ep['scriptFileName'] == 'URLChecker.ltz':
+                            for at in range(len(ep['attributes'])):
+                                if ep['attributes'][at]['value'].find('http') != -1:
+                                    url =  ep['attributes'][at]['value']
+                                    break
+                        else: 
+                            url = ''
 
-                    else:
-                      f.write('<tr><td class="tg-us36">' + a['displayName'] + 
-                         '</td><td class="tg-us36">' + ep['executionPlanName'] + 
-                         '</td><td class="tg-us36">' + ep['scriptFileName'] + 
-                         '</td><td class="tg-us36">' + url + 
-                         '</td><td class="tg-us36">' + locations[:-2] + 
-                         '</td><td class="tg-us36">' + blackouts[:-2] +
-                         '</td><td class="tg-1r1g">Inactive</td></tr>')
-                      self.__numInactive += 1
+                        locations = ''    
+                        for at in range(len(ep['agentGroups'])):
+                                locations +=  ep['agentGroups'][at]['name'] + ', '
+
+                        blackouts = ''    
+                        for at in range(len(ep['blackOuts'])):
+                            if ep['blackOuts'][at]['blackoutName'] is not None:
+                                blackouts +=  ep['blackOuts'][at]['blackoutName'] + ', '
+
+                        if int(str(ep['activeStatus'])) == 1:
+                            f.write('<tr><td class="tg-us36">' + a['displayName'] + 
+                             '</td><td class="tg-us36">' + ep['executionPlanName'] +
+                             '</td><td class="tg-us36">' + ep['scriptFileName'] +
+                             '</td><td class="tg-us36">' + url + 
+                             '</td><td class="tg-us36">' + locations[:-2] + 
+                             '</td><td class="tg-us36">' + blackouts[:-2] + 
+                             '</td><td class="tg-ww61">Active</td></tr>')
+                            self.__numActive += 1
+
+                        else:
+                          f.write('<tr><td class="tg-us36">' + a['displayName'] + 
+                             '</td><td class="tg-us36">' + ep['executionPlanName'] + 
+                             '</td><td class="tg-us36">' + ep['scriptFileName'] + 
+                             '</td><td class="tg-us36">' + url + 
+                             '</td><td class="tg-us36">' + locations[:-2] + 
+                             '</td><td class="tg-us36">' + blackouts[:-2] +
+                             '</td><td class="tg-1r1g">Inactive</td></tr>')
+                          self.__numInactive += 1
             f.write('</table>')
             f.write('<center><p>Active: '  + str(self.__numActive) + '</p><p> Inactive: ' +  str(self.__numInactive) +'</p></center>')             
             f.write( time.strftime('<center><p>%d-%m-%Y %H:%M</p></center>')) 
@@ -304,6 +305,7 @@ class itsm_scripts_management():
             WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, app[10]))).click()
         driver.quit()
 
+        
     def __distribute_ltz(self, extract, apps=None): 
         applications = self.__get_apps()
         for i in applications['data']:
@@ -351,9 +353,9 @@ try:
     CLI.add_argument("password", help="AD Password", type=str)     
     #CLI.add_argument("download_path", help="download_path", type=str)     
     CLI.add_argument("--apps",  nargs="*",  type=str,    default=[]   ) 
-    CLI.add_argument('--visible', action='store_true')
-    CLI.add_argument('--organize', action='store_true')
-    CLI.add_argument('--extract', action='store_true')
+    CLI.add_argument('--visible', action='store_true', help="It shows the Chrome windows while it's working")
+    CLI.add_argument('--organize', action='store_true', help="Organize the transactions into folders")
+    CLI.add_argument('--extract', action='store_true', help="Extract the scritpt from the project")
     args = CLI.parse_args()
     
     download_path = os.path.join("D:\\Truesight Scripts") 
@@ -362,7 +364,9 @@ try:
         bk.get_scripts(args.organize, args.extract)
     else:
         bk.get_scripts_by_app( args.apps, False, False)
-    #bk.get_report()    
+    bk.get_report()    
 except:
     e = sys.exc_info()[0]
     print (e)
+
+# Uso :  python -u itsm_scripts_management.py user pass --visilble  --organize --extract
